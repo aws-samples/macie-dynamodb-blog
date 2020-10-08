@@ -1,11 +1,18 @@
-## My Project
+## Macie DynamoDB Blog
 
-TODO: Fill this README out!
+The purpose of this repo is to store all content related to the Macie DynamoDB blog found here <Blog URL will go here>
 
-Be sure to:
+### CloudFormation
 
-* Change the title in this README
-* Edit your repository description on GitHub
+The cft.yaml in the /src folder is the Cloudformation template used to deploy the blog
+
+### Python Code
+
+**src/Import-Data-To-DynamoDB.py**
+Python file that handles the import of test CSV datasets to DynamoDB
+
+**src/Export-DynamoDB-Data-To-S3.py**
+Python file that handles the export of DynamoDB table data into S3
 
 ## Security
 
@@ -14,4 +21,3 @@ See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more inform
 ## License
 
 This library is licensed under the MIT-0 License. See the LICENSE file.
-

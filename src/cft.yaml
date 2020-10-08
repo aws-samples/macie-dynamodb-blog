@@ -1,0 +1,444 @@
+Resources:
+  DynamoDBMacieKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: "Key used to decrypt data exported from DynamoDB to S3"
+      Enabled: True
+      EnableKeyRotation: True
+      KeyPolicy:
+        {
+          "Version": "2012-10-17",
+          "Id": "key-default-2",
+          "Statement":
+            [
+              {
+                "Sid": "Enable IAM User Permissions",
+                "Effect": "Allow",
+                "Principal":
+                  { "AWS": !Sub "arn:aws:iam::${AWS::AccountId}:root" },
+                "Action": "kms:*",
+                "Resource": "*",
+              },
+              {
+                "Sid": "Allow Macie Service Role to use the key",
+                "Effect": "Allow",
+                "Principal":
+                  {
+                    "AWS": !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/macie.amazonaws.com/AWSServiceRoleForAmazonMacie",
+                  },
+                "Action":
+                  [
+                    "kms:DescribeKey",
+                    "kms:Encrypt",
+                    "kms:Decrypt",
+                    "kms:ReEncrypt*",
+                    "kms:GenerateDataKey",
+                  ],
+                "Resource": "*",
+              },
+            ],
+        }
+      Tags:
+        - Key: "Name"
+          Value: "DynamoMacieKey"
+        - Key: "Description"
+          Value: "Key used to decrypt data exported from DynamoDB to S3"
+
+  DynamoDBMacieKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/DynamoDBMacieBlogKey
+      TargetKeyId: !Ref DynamoDBMacieKMSKey
+
+  CustomIdentifier:
+    Type: AWS::Macie::CustomDataIdentifier
+    Properties:
+      Description: Checks for customer account number format
+      Name: accouunt_number
+      Regex: (XYZ-)\d{11,11}
+
+  ExportDynamoDBDataToS3:
+    DependsOn:
+      - ExportLambdaRole
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Description: "Exports data from DynamoDB to S3 bucket"
+      Code:
+        ZipFile: |
+          import boto3, json, os, datetime
+
+          def lambda_handler(event, context):
+              # retrieves environment variable that contains the dynamoDB tables data that will be exported
+              tables = os.environ['dynamo_db_tables'].split(',')
+              table_count = len(tables)
+
+              # current date and time will be added as part of the file name that is exported
+              current_time = datetime.datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
+
+              # loops through dynamodb tables
+              for table in tables:
+                  print(f'Exporting sample data for {table} table')
+
+                  dynamodb = boto3.resource('dynamodb')
+
+                  current_table = dynamodb.Table(table)
+
+                  # scans current dynamodb table to get sample data
+                  response = current_table.scan()['Items']
+
+                  s3 = boto3.client('s3')
+
+                  ''' creates new S3 object with dynamoDB sample data
+                      filename format is dynamodb-<tablename>-<region>-<current_datetime>.json
+                  '''
+                  s3.put_object(
+                      Bucket=str(os.environ['bucket_to_export_to']),
+                      Key=f"dynamodb-{table}-{os.environ['AWS_REGION']}-{current_time}.json",
+                      Body=str(response)
+                  )
+
+              return 'DynamoDB data has been exported to S3'
+      Runtime: python3.7
+      FunctionName: Export-DynamoDB-Data-To-S3
+      Timeout: 120
+      Environment:
+        Variables:
+          bucket_to_export_to: !Ref ExportS3BucketMacie
+          dynamo_db_tables: "accounts-info-macie,people-macie"
+      Role: !GetAtt ExportLambdaRole.Arn
+
+  ImportDataToDynamoDB:
+    DependsOn:
+      - ImportLambdaRole
+      - ImportS3Bucket
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Description: "Imports test CSV from S3 to DynamoDB"
+      Code:
+        ZipFile: |
+          import json, boto3, os, csv, codecs, sys
+
+          s3 = boto3.resource('s3')
+          dynamodb = boto3.resource('dynamodb')
+
+          # location where import files exist
+          s3_bucket_name = os.environ['s3_import_bucket_name'] 
+
+          def lambda_handler(event, context):
+              # Object array that stores key/value pair of csv file and 
+              # the dynamoDB table where csv data will be imported.
+              # Converts string value to json object
+              data_import_export_location = json.loads(os.environ['data_import_export_location'])
+
+              #loops through array of objects
+              for data in data_import_export_location:
+                  # loads dynamodb table and csv file name
+                  dynamoDB_table_name = data['table_name']
+                  csv_data_filename = data['csv_name'] 
+                  
+                  # # sets batch writing size
+                  batch_size = 100
+                  batch_data = []
+                  
+                  try:
+                      # gets s3 csv content
+                      obj = s3.Object(s3_bucket_name, csv_data_filename).get()['Body']
+                  except:
+                      print("Problem acessing S3 object")
+              
+                  try:
+                      # reference to dynamodb table
+                      table = dynamodb.Table(dynamoDB_table_name)
+                  except:
+                      print("Problem accessing DynamoDB table.")
+              
+                  # Loops through CSV data and batch writes 100 items at a time
+                  for row in csv.DictReader(codecs.getreader('utf-8')(obj)):
+                      if len(batch_data) >= batch_size:
+                          write_data_to_dynamo(batch_data, dynamoDB_table_name)
+                          batch_data.clear()
+              
+                      batch_data.append(row)
+                  
+                  if batch_data:
+                      write_data_to_dynamo(batch_data, dynamoDB_table_name)
+              
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Data imported into DynamoDB Table')
+              }
+                                          
+          # function that writes data to DynamoDB table       
+          def write_data_to_dynamo(rows, table_name):
+              try:
+                  dynamodb_table = dynamodb.Table(table_name)
+              except:
+                  print("Problem accessing DynamoDB table.")
+
+              try:
+                  with dynamodb_table.batch_writer() as batch:
+                      for i in range(len(rows)):
+                          batch.put_item(
+                              Item=rows[i]
+                          )
+              except:
+                  print("There was a problem loading data into DynamoDB table")
+      Runtime: python3.7
+      FunctionName: Import-Data-To-DynamoDB
+      Timeout: 120
+      Environment:
+        Variables:
+          data_import_export_location: '[{"csv_name": "people.csv", "table_name": "people-macie"},{"csv_name": "accounts.csv", "table_name": "accounts-info-macie"}]'
+          s3_import_bucket_name: !Ref ImportS3Bucket
+      Role: !GetAtt ImportLambdaRole.Arn
+
+  ExportS3BucketMacie:
+    DependsOn: DynamoDBMacieKeyAlias
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              # KMS using the KMS Key ARN
+              # KMSMasterKeyID: !GetAtt DynamoDBMacieKMSKey.Arn
+              # KMS using the KMS Key alias
+              KMSMasterKeyID: !Ref DynamoDBMacieKeyAlias
+
+  ImportS3Bucket:
+    DependsOn: DynamoDBMacieKeyAlias
+    Type: AWS::S3::Bucket
+
+  ExportLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+
+  ImportLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+
+  ExportDynamoDBLambdaPolicy:
+    DependsOn:
+      - ExportLambdaRole
+      - DynamoDBMacieKMSKey
+      - ExportS3BucketMacie
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: DynamoDBExportLambdaPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "kms:Decrypt"
+              - "kms:Encrypt"
+              - "kms:GenerateDataKey"
+            Resource:
+              - !GetAtt DynamoDBMacieKMSKey.Arn
+          - Effect: Allow
+            Action:
+              - "kms:ListKeys"
+              - "kms:ListAliases"
+            Resource:
+              - !GetAtt DynamoDBMacieKMSKey.Arn
+          - Effect: Allow
+            Action:
+              - "s3:PutObject"
+              - "s3:ListBucket"
+            Resource:
+              - !Sub arn:aws:s3:::${ExportS3BucketMacie}/*
+          - Effect: Allow
+            Action:
+              - "logs:CreateLogGroup"
+              - "logs:CreateLogStream"
+              - "logs:PutLogEvents"
+            Resource:
+              - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+              - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ExportDynamoDBDataToS3}:*
+          - Effect: Allow
+            Action:
+              - "logs:CreateLogStream"
+              - "logs:PutLogEvents"
+            Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+          - Effect: Allow
+            Action:
+              - "dynamodb:Scan"
+            Resource:
+              - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*
+          - Effect: Allow
+            Action:
+              - "dynamodb:GetItem"
+            Resource: "*"
+      Roles:
+        - !Ref ExportLambdaRole
+
+  ImportDynamoDBLambdaPolicy:
+    DependsOn:
+      - ImportLambdaRole
+      - ImportS3Bucket
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: DynamoDBImportLambdaPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "s3:ListBucket"
+              - "s3:GetObject"
+            Resource:
+              - !Sub arn:aws:s3:::${ImportS3Bucket}/*
+              - !Sub arn:aws:s3:::${ImportS3Bucket}
+          - Effect: Allow
+            Action:
+              - "logs:CreateLogGroup"
+              - "logs:CreateLogStream"
+              - "logs:PutLogEvents"
+            Resource:
+              - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+              - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ImportDataToDynamoDB}:*
+          - Effect: Allow
+            Action:
+              - "logs:CreateLogStream"
+              - "logs:PutLogEvents"
+            Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+          - Effect: Allow
+            Action:
+              - "dynamodb:BatchWriteItem"
+            Resource:
+              - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PeopleTable}
+              - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AccountsInfoTable}
+      Roles:
+        - !Ref ImportLambdaRole
+
+  ExportDynamoDBDataRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Exports DyanmoDB data to S3"
+      Name: ExportDynamoDBData
+      ScheduleExpression: rate(12 hours)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ExportDynamoDBDataToS3.Arn
+          Id: !Ref ExportDynamoDBDataToS3
+
+  PermissionForEventsToInvokeDynamoExport:
+    DependsOn: ExportDynamoDBDataRule
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: ExportDynamoDBDataToS3
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt ExportDynamoDBDataRule.Arn
+
+  PeopleTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: "people-macie"
+      AttributeDefinitions:
+        - AttributeName: "id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "id"
+          KeyType: "HASH"
+      GlobalSecondaryIndexes:
+        - IndexName: "GSI"
+          KeySchema:
+            - AttributeName: "id"
+              KeyType: "HASH"
+          Projection:
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  AccountsInfoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: "accounts-info-macie"
+      AttributeDefinitions:
+        - AttributeName: "id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "id"
+          KeyType: "HASH"
+      GlobalSecondaryIndexes:
+        - IndexName: "GSI"
+          KeySchema:
+            - AttributeName: "id"
+              KeyType: "HASH"
+          Projection:
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+Outputs:
+  ImportS3BucketName:
+    Value: !Ref ImportS3Bucket
+    Description: "S3 bucket to place test dataset CSV files to import into DynamoDB"
+  ImportS3BucketURL:
+    Value: !Sub https://console.aws.amazon.com/s3/buckets/${ImportS3Bucket}/?region=${AWS::Region}&tab=overview
+    Description: "Import data S3 bucket location"
+  ExportS3BucketName:
+    Value: !Ref ExportS3BucketMacie
+    Description: "S3 bucket that DynamoDB data will be exported to for Macie to run a discovery job against"
+  ExportS3BucketURL:
+    Value: !Sub https://console.aws.amazon.com/s3/buckets/${ExportS3BucketMacie}/?region=${AWS::Region}&tab=overview
+    Description: "Export data S3 bucket location"
+  AccountsDynamoDBTableName:
+    Value: !Ref AccountsInfoTable
+    Description: "DynamoDB table where account information will be stored"
+  AccountsDynamoDBTableURL:
+    Value: !Sub https://console.aws.amazon.com/dynamodb/home?region=${AWS::Region}#tables:selected=${AccountsInfoTable};tab=items
+    Description: "Accounts DynamoDB table location"
+  PeopleDynamoDBTableName:
+    Value: !Ref PeopleTable
+    Description: "DynamoDB table where personal contact information will be stored"
+  PeopleDynamoDBTableURL:
+    Value: !Sub https://console.aws.amazon.com/dynamodb/home?region=${AWS::Region}#tables:selected=${PeopleTable};tab=items
+    Description: "People DynamoDB DynamoDB table location"
+  LambdaExportDynamoDBDataToS3:
+    Value: !Ref ExportDynamoDBDataToS3
+    Description: "Lambda function that will be used by EventBridge to export data to S3"
+  LambdaExportDynamoDBDataToS3URL:
+    Value: !Sub https://console.aws.amazon.com/lambda/home?region=${AWS::Region}#/functions/${ExportDynamoDBDataToS3}?tab=configuration
+    Description: "Lambda function used to export data to S3"
+  LambdaImportS3DataToDynamoDB:
+    Value: !Ref ImportDataToDynamoDB
+    Description: "Lambda function that will be used to seed test data in DynamoDB"
+  LambdaImportS3DataToDynamoURL:
+    Value: !Sub https://console.aws.amazon.com/lambda/home?region=${AWS::Region}#/functions/${ImportDataToDynamoDB}?tab=configuration
+    Description: "DynamoDB Import data lambda function"
+  EventBridgeRule:
+    Value: !Sub https://console.aws.amazon.com/events/home?region=${AWS::Region}#/eventbus/default/rules/${ExportDynamoDBDataRule}
+    Description: "The EventBridge Rule used to automatically export DynamoDB data to S3"
