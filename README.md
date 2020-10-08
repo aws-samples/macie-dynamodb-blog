@@ -11,9 +11,11 @@ The cft.yaml in the /src folder is the Cloudformation template used to deploy th
 **Location:** in /src folder
 
 **src/Import-Data-To-DynamoDB.py**
+<br>
 Python file that handles the import of test CSV datasets to DynamoDB
 
 **src/Export-DynamoDB-Data-To-S3.py**
+<br>
 Python file that handles the export of DynamoDB table data into S3
 
 ### Test Datasets
