@@ -6,7 +6,7 @@ The purpose of this repo is to store all content related to the Macie DynamoDB b
 
 The cft.yaml in the /src folder is the Cloudformation template used to deploy the blog
 
-<br><br>
+<br>
 
 ### Python Lambda Code
 
