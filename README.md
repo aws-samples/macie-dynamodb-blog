@@ -6,7 +6,7 @@ The purpose of this repo is to store all content related to the Macie DynamoDB b
 
 The cft.yaml in the /src folder is the Cloudformation template used to deploy the blog
 
-<br>
+<br><br>
 
 ### Python Lambda Code
 
@@ -19,7 +19,7 @@ Python file that handles the import of test CSV datasets to DynamoDB
 **src/Export-DynamoDB-Data-To-S3.py**
 <br>
 Python file that handles the export of DynamoDB table data into S3
-<br>
+<br><br>
 
 ### Test Datasets
 
@@ -28,6 +28,7 @@ Python file that handles the export of DynamoDB table data into S3
 **accounts.csv** <br>Test dataset that will be loaded into the DynamoDB table by the Import-Data-To-DynamoDB lambda function
 
 **people.csv** <br> Test dataset that will be loaded into the DynamoDB table by the Import-Data-To-DynamoDB lambda function
+<br>
 <br>
 
 ## Security
