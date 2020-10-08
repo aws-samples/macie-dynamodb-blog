@@ -22,10 +22,9 @@ Python file that handles the export of DynamoDB table data into S3
 
 **Location:** in /datasets folder
 
-**accounts.csv** - Test dataset that will be loaded into the DynamoDB table by the Import-Data-To-DynamoDB lambda function
-<br>
-<br>
-**people.csv** - Test dataset that will be loaded into the DynamoDB table by the Import-Data-To-DynamoDB lambda function
+**accounts.csv** <br>Test dataset that will be loaded into the DynamoDB table by the Import-Data-To-DynamoDB lambda function
+
+**people.csv** <br> Test dataset that will be loaded into the DynamoDB table by the Import-Data-To-DynamoDB lambda function
 
 ## Security
 
