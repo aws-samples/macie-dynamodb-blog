@@ -8,6 +8,8 @@ The cft.yaml in the /src folder is the Cloudformation template used to deploy th
 
 ### Python Lambda Code
 
+**Location:** in /src folder
+
 **src/Import-Data-To-DynamoDB.py**
 Python file that handles the import of test CSV datasets to DynamoDB
 
@@ -16,7 +18,7 @@ Python file that handles the export of DynamoDB table data into S3
 
 ### Test Datasets
 
-**Location:** in datasets folder
+**Location:** in /datasets folder
 
 **accounts.csv** - Test dataset that will be loaded into the DynamoDB table by the Import-Data-To-DynamoDB lambda function
 <br>
