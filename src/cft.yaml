@@ -54,7 +54,7 @@ Resources:
     Type: AWS::Macie::CustomDataIdentifier
     Properties:
       Description: Checks for customer account number format
-      Name: accouunt_number
+      Name: account_number
       Regex: (XYZ-)\d{11,11}
 
   ExportDynamoDBDataToS3:
@@ -426,7 +426,7 @@ Outputs:
     Description: "DynamoDB table where personal contact information will be stored"
   PeopleDynamoDBTableURL:
     Value: !Sub https://console.aws.amazon.com/dynamodb/home?region=${AWS::Region}#tables:selected=${PeopleTable};tab=items
-    Description: "People DynamoDB DynamoDB table location"
+    Description: "People DynamoDB table location"
   LambdaExportDynamoDBDataToS3:
     Value: !Ref ExportDynamoDBDataToS3
     Description: "Lambda function that will be used by EventBridge to export data to S3"
