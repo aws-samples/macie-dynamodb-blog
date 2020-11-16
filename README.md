@@ -1,6 +1,6 @@
 ## Macie DynamoDB Blog
 
-The purpose of this repo is to store all content related to the Macie DynamoDB blog found here <Blog URL will go here>
+Repo contains all source code and Cloudformation templates for Macie DynamoDB blog located here <placeholder - once blog is published link will be found here>
 
 <hr/>
 
