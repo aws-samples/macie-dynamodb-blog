@@ -338,7 +338,7 @@ Resources:
     Properties:
       Description: "Exports DyanmoDB data to S3"
       Name: ExportDynamoDBData
-      ScheduleExpression: rate(12 hours)
+      ScheduleExpression: rate(1 hour)
       State: ENABLED
       Targets:
         - Arn: !GetAtt ExportDynamoDBDataToS3.Arn
