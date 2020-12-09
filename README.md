@@ -1,6 +1,6 @@
-## Macie DynamoDB Blog
+## Detecting Sensitive Data In Dynamodb with Macie - Blog
 
-Repo contains all source code and Cloudformation templates for Macie DynamoDB blog located here <placeholder - once blog is published link will be found here>
+Repo contains all source code and Cloudformation templates for Macie DynamoDB blog located here https://aws.amazon.com/blogs/security/detecting-sensitive-data-in-dynamodb-with-macie/
 
 <hr/>
 
